@@ -150,7 +150,7 @@ const handler = createMcpHandler(
           // Fallback: mutateResources
           try {
             const customer2 = getCustomer(customer_id);
-            const result = await customer2.mutateResources([{
+            const result = await (customer2 as any).mutateResources([{
               _resource: "CampaignBudget",
               _operation: "create",
               name,
@@ -180,7 +180,7 @@ const handler = createMcpHandler(
       async ({ customer_id, budget_id, amount_micros }) => {
         try {
           const customer = getCustomer(customer_id);
-          await customer.mutateResources([{
+          await (customer as any).mutateResources([{
             _resource: "CampaignBudget",
             _operation: "update",
             resource_name: `customers/${customer_id}/campaignBudgets/${budget_id}`,
@@ -228,7 +228,7 @@ const handler = createMcpHandler(
           else if (bidding_strategy === "TARGET_ROAS") campaign.target_roas = { target_roas: target_roas || 1.0 };
 
           const customer = getCustomer(customer_id);
-          const result = await customer.mutateResources([campaign]);
+          const result = await (customer as any).mutateResources([campaign]);
           return { content: [{ type: "text" as const, text: `Kampagne erstellt: ${JSON.stringify(result, null, 2)}` }] };
         } catch (error: any) {
           return { content: [{ type: "text" as const, text: `Fehler: ${error.message}` }] };
@@ -297,7 +297,7 @@ const handler = createMcpHandler(
             type: 2, // SEARCH_STANDARD
           };
           if (cpc_bid_micros) adGroup.cpc_bid_micros = cpc_bid_micros;
-          const result = await customer.mutateResources([adGroup]);
+          const result = await (customer as any).mutateResources([adGroup]);
           return { content: [{ type: "text" as const, text: `Ad Group erstellt: ${JSON.stringify(result, null, 2)}` }] };
         } catch (error: any) {
           return { content: [{ type: "text" as const, text: `Fehler: ${error.message}` }] };
@@ -319,7 +319,7 @@ const handler = createMcpHandler(
       async ({ customer_id, ad_group_id, status }) => {
         try {
           const customer = getCustomer(customer_id);
-          await customer.mutateResources([{
+          await (customer as any).mutateResources([{
             _resource: "AdGroup",
             _operation: "update",
             resource_name: `customers/${customer_id}/adGroups/${ad_group_id}`,
@@ -346,7 +346,7 @@ const handler = createMcpHandler(
       async ({ customer_id, ad_group_id, cpc_bid_micros }) => {
         try {
           const customer = getCustomer(customer_id);
-          await customer.mutateResources([{
+          await (customer as any).mutateResources([{
             _resource: "AdGroup",
             _operation: "update",
             resource_name: `customers/${customer_id}/adGroups/${ad_group_id}`,
@@ -424,7 +424,7 @@ const handler = createMcpHandler(
               },
             },
           };
-          const result = await customer.mutateResources([ad]);
+          const result = await (customer as any).mutateResources([ad]);
           return { content: [{ type: "text" as const, text: `RSA erstellt: ${JSON.stringify(result, null, 2)}` }] };
         } catch (error: any) {
           return { content: [{ type: "text" as const, text: `Fehler: ${error.message}` }] };
@@ -447,7 +447,7 @@ const handler = createMcpHandler(
       async ({ customer_id, ad_group_id, ad_id, status }) => {
         try {
           const customer = getCustomer(customer_id);
-          await customer.mutateResources([{
+          await (customer as any).mutateResources([{
             _resource: "AdGroupAd",
             _operation: "update",
             resource_name: `customers/${customer_id}/adGroupAds/${ad_group_id}~${ad_id}`,
@@ -533,7 +533,7 @@ const handler = createMcpHandler(
             if (cpc_bid_micros) op.cpc_bid_micros = cpc_bid_micros;
             return op;
           });
-          const result = await customer.mutateResources(operations);
+          const result = await (customer as any).mutateResources(operations);
           return { content: [{ type: "text" as const, text: `${keywords.length} Keywords hinzugefügt: ${JSON.stringify(result, null, 2)}` }] };
         } catch (error: any) {
           return { content: [{ type: "text" as const, text: `Fehler: ${error.message}` }] };
@@ -555,7 +555,7 @@ const handler = createMcpHandler(
       async ({ customer_id, ad_group_id, criterion_id }) => {
         try {
           const customer = getCustomer(customer_id);
-          await customer.mutateResources([{
+          await (customer as any).mutateResources([{
             _resource: "AdGroupCriterion",
             _operation: "remove",
             resource_name: `customers/${customer_id}/adGroupCriteria/${ad_group_id}~${criterion_id}`,
@@ -595,7 +595,7 @@ const handler = createMcpHandler(
               negative: true,
               keyword: { text: kw.text, match_type: matchTypeMap[kw.match_type] },
             }));
-            const result = await customer.mutateResources(operations);
+            const result = await (customer as any).mutateResources(operations);
             return { content: [{ type: "text" as const, text: `${keywords.length} negative Keywords auf Kampagnen-Ebene hinzugefügt: ${JSON.stringify(result, null, 2)}` }] };
           } else if (ad_group_id) {
             const operations = keywords.map(kw => ({
@@ -605,7 +605,7 @@ const handler = createMcpHandler(
               negative: true,
               keyword: { text: kw.text, match_type: matchTypeMap[kw.match_type] },
             }));
-            const result = await customer.mutateResources(operations);
+            const result = await (customer as any).mutateResources(operations);
             return { content: [{ type: "text" as const, text: `${keywords.length} negative Keywords auf Ad-Group-Ebene hinzugefügt: ${JSON.stringify(result, null, 2)}` }] };
           }
           return { content: [{ type: "text" as const, text: "Fehler: campaign_id oder ad_group_id muss angegeben werden." }] };
@@ -1061,7 +1061,7 @@ const handler = createMcpHandler(
             },
             final_urls: [final_url],
           };
-          const result = await customer.mutateResources([asset]);
+          const result = await (customer as any).mutateResources([asset]);
           return { content: [{ type: "text" as const, text: `Sitelink erstellt: ${JSON.stringify(result, null, 2)}` }] };
         } catch (error: any) {
           return { content: [{ type: "text" as const, text: `Fehler: ${error.message}` }] };
@@ -1082,7 +1082,7 @@ const handler = createMcpHandler(
       async ({ customer_id, callout_text }) => {
         try {
           const customer = getCustomer(customer_id);
-          const result = await customer.mutateResources([{
+          const result = await (customer as any).mutateResources([{
             _resource: "Asset",
             _operation: "create",
             type: 8, // CALLOUT
