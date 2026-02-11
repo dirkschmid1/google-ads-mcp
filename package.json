@@ -1,0 +1,27 @@
+{
+  "name": "google-ads-mcp",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.2.14",
+    "google-ads-api": "^23.0.0",
+    "mcp-handler": "^1.0.7",
+    "next": "^16.1.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "typescript": "^5.9.3",
+    "zod": "^4.3.6"
+  }
+}
