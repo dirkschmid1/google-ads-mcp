@@ -54,13 +54,25 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const form = await req.formData();
-  const password = form.get("password") as string;
-  const redirectUri = form.get("redirect_uri") as string;
-  const state = form.get("state") as string;
-  const codeChallenge = form.get("code_challenge") as string;
+  let password = "", redirectUri = "", state = "", codeChallenge = "";
+  const ct = req.headers.get("content-type") || "";
+  if (ct.includes("multipart/form-data") || ct.includes("application/x-www-form-urlencoded")) {
+    const form = await req.formData();
+    password = (form.get("password") as string) || "";
+    redirectUri = (form.get("redirect_uri") as string) || "";
+    state = (form.get("state") as string) || "";
+    codeChallenge = (form.get("code_challenge") as string) || "";
+  } else {
+    const text = await req.text();
+    const params = new URLSearchParams(text);
+    password = params.get("password") || "";
+    redirectUri = params.get("redirect_uri") || "";
+    state = params.get("state") || "";
+    codeChallenge = params.get("code_challenge") || "";
+  }
 
-  if (password !== process.env.AUTH_SECRET) {
+  const secret = process.env.AUTH_SECRET || "";
+  if (password.trim() !== secret.trim() || !secret) {
     const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Google Ads MCP — Authorize</title>
