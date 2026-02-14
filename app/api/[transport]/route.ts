@@ -181,7 +181,13 @@ const handler = createMcpHandler(
         const result = await customer.mutateResources([{ entity: "campaign", operation: "create", resource: campaign }] as any);
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
       } catch (e: any) {
-        const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === 'object' ? JSON.stringify(e) : String(e));
+        // Extract full error details from Google Ads API
+        const details = e.errors?.map((err: any) => {
+          const code = err.error_code ? JSON.stringify(err.error_code) : '';
+          const loc = err.location?.field_path_elements?.map((f: any) => f.field_name).join('.') || '';
+          return `${code} ${err.message || ''} ${loc ? `(field: ${loc})` : ''}`.trim();
+        }).join('; ');
+        const msg = details || e.message || (typeof e === 'object' ? JSON.stringify(e, null, 2) : String(e));
         return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] };
       }
     });
