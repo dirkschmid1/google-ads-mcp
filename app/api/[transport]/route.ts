@@ -744,20 +744,42 @@ const handler = createMcpHandler(
 
     server.registerTool("create_sitelink_extension", {
       title: "Create Sitelink Extension",
-      description: "Erstellt eine Sitelink-Erweiterung.",
+      description: "Erstellt eine Sitelink-Erweiterung und verknüpft sie optional mit einer Kampagne.",
       inputSchema: {
         customer_id: z.string(), link_text: z.string().describe("Sitelink-Text (max 25 Zeichen)"),
-        final_urls: z.array(z.string()), description1: z.string().optional(), description2: z.string().optional(),
+        final_urls: z.array(z.string()).describe("Ziel-URLs (z.B. ['https://example.com/seite'])"),
+        description1: z.string().optional(), description2: z.string().optional(),
+        campaign_id: z.string().optional().describe("Optional: Kampagne verknüpfen"),
       },
-    }, async ({ customer_id, link_text, final_urls, description1, description2 }) => {
+    }, async ({ customer_id, link_text, final_urls, description1, description2, campaign_id }) => {
       try {
         const customer = getCustomer(customer_id);
-        const asset: any = { type: 6, sitelink_asset: { link_text, final_urls } };
-        if (description1) asset.sitelink_asset.description1 = description1;
-        if (description2) asset.sitelink_asset.description2 = description2;
-        const result = await customer.mutateResources([{ entity: "asset", operation: "create", resource: asset }] as any);
-        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
+        // Sitelink asset: final_urls goes INSIDE sitelink_asset in v23
+        const sitelinkAsset: any = { link_text, final_urls };
+        if (description1) sitelinkAsset.description1 = description1;
+        if (description2) sitelinkAsset.description2 = description2;
+        const asset: any = { type: 11, sitelink_asset: sitelinkAsset, final_urls };
+        const mutations: any[] = [{ entity: "asset", operation: "create", resource: asset }];
+        const result = await customer.mutateResources(mutations as any);
+        // If campaign_id provided, link the asset to the campaign
+        let linkResult = null;
+        if (campaign_id && result?.mutate_operation_responses?.[0]?.asset_result?.resource_name) {
+          const assetResourceName = result.mutate_operation_responses[0].asset_result.resource_name;
+          linkResult = await customer.mutateResources([{
+            entity: "campaign_asset", operation: "create",
+            resource: {
+              asset: assetResourceName,
+              campaign: `customers/${customer_id}/campaigns/${campaign_id}`,
+              field_type: 13, // SITELINK
+            },
+          }] as any);
+        }
+        return { content: [{ type: "text" as const, text: JSON.stringify({ asset: result, campaignLink: linkResult }, null, 2) }] };
+      } catch (e: any) {
+        const details = e.errors?.map((err: any) => { const code = err.error_code ? JSON.stringify(err.error_code) : ''; const loc = err.location?.field_path_elements?.map((f: any) => f.field_name).join('.') || ''; return `${code} ${err.message || ''} ${loc ? `(field: ${loc})` : ''}`.trim(); }).join('; ');
+        const msg = details || e.message || (typeof e === 'object' ? JSON.stringify(e, null, 2) : String(e));
+        return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] };
+      }
     });
 
     server.registerTool("create_callout_extension", {
@@ -766,16 +788,60 @@ const handler = createMcpHandler(
       inputSchema: {
         customer_id: z.string(),
         callout_text: z.string().describe("Callout-Text (max 25 Zeichen)"),
+        campaign_id: z.string().optional().describe("Optional: Kampagne verknüpfen"),
       },
-    }, async ({ customer_id, callout_text }) => {
+    }, async ({ customer_id, callout_text, campaign_id }) => {
       try {
         const customer = getCustomer(customer_id);
         const result = await customer.mutateResources([{
           entity: "asset", operation: "create",
-          resource: { type: 7, callout_asset: { callout_text } },
+          resource: { type: 9, callout_asset: { callout_text } },
         }] as any);
+        if (campaign_id && result?.mutate_operation_responses?.[0]?.asset_result?.resource_name) {
+          const assetResourceName = result.mutate_operation_responses[0].asset_result.resource_name;
+          await customer.mutateResources([{
+            entity: "campaign_asset", operation: "create",
+            resource: { asset: assetResourceName, campaign: `customers/${customer_id}/campaigns/${campaign_id}`, field_type: 11 }, // CALLOUT
+          }] as any);
+        }
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
+      } catch (e: any) {
+        const details = e.errors?.map((err: any) => { const code = err.error_code ? JSON.stringify(err.error_code) : ''; return `${code} ${err.message || ''}`.trim(); }).join('; ');
+        const msg = details || e.message || (typeof e === 'object' ? JSON.stringify(e, null, 2) : String(e));
+        return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] };
+      }
+    });
+
+    server.registerTool("create_structured_snippet", {
+      title: "Create Structured Snippet Extension",
+      description: "Erstellt eine Structured-Snippet-Erweiterung (z.B. Dienstleistungen, Typen, Marken).",
+      inputSchema: {
+        customer_id: z.string(),
+        header: z.enum(["Ausstattung", "Dienstleistungen", "Kurse", "Marken", "Modelle", "Programme", "Reiseziele", "Studienfächer", "Stile", "Typen", "Viertel", "Versicherungsschutz"]).describe("Snippet-Header/Kategorie"),
+        values: z.array(z.string()).min(3).describe("Mindestens 3 Werte"),
+        campaign_id: z.string().optional().describe("Optional: Kampagne verknüpfen"),
+      },
+    }, async ({ customer_id, header, values, campaign_id }) => {
+      try {
+        const customer = getCustomer(customer_id);
+        // Structured snippet = asset type 22 (STRUCTURED_SNIPPET)
+        const result = await customer.mutateResources([{
+          entity: "asset", operation: "create",
+          resource: { type: 10, structured_snippet_asset: { header, values } },
+        }] as any);
+        if (campaign_id && result?.mutate_operation_responses?.[0]?.asset_result?.resource_name) {
+          const assetResourceName = result.mutate_operation_responses[0].asset_result.resource_name;
+          await customer.mutateResources([{
+            entity: "campaign_asset", operation: "create",
+            resource: { asset: assetResourceName, campaign: `customers/${customer_id}/campaigns/${campaign_id}`, field_type: 12 }, // STRUCTURED_SNIPPET
+          }] as any);
+        }
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (e: any) {
+        const details = e.errors?.map((err: any) => { const code = err.error_code ? JSON.stringify(err.error_code) : ''; return `${code} ${err.message || ''}`.trim(); }).join('; ');
+        const msg = details || e.message || (typeof e === 'object' ? JSON.stringify(e, null, 2) : String(e));
+        return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] };
+      }
     });
 
     // ==========================================
