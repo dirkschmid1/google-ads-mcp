@@ -2,6 +2,21 @@ import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import { getCustomer } from "@/lib/google-ads-client";
 
+
+
+function convertDateRange(dateRange: string): string {
+  const VALID_RANGES = ['TODAY', 'YESTERDAY', 'LAST_7_DAYS', 'LAST_30_DAYS', 'THIS_MONTH', 'LAST_MONTH'];
+  if (VALID_RANGES.includes(dateRange)) return `segments.date DURING ${dateRange}`;
+  const daysMatch = dateRange.match(/^LAST_(\d+)_DAYS$/);
+  if (daysMatch) {
+    const days = parseInt(daysMatch[1]);
+    const end = new Date(); const start = new Date();
+    start.setDate(start.getDate() - days);
+    const fmt = (d: Date) => d.toISOString().split('T')[0];
+    return `segments.date BETWEEN '${fmt(start)}' AND '${fmt(end)}'`;
+  }
+  return `segments.date DURING ${dateRange}`;
+}
 const handler = createMcpHandler(
   (server) => {
 
@@ -56,7 +71,7 @@ const handler = createMcpHandler(
       description: "Zeigt Kampagnen-Performance für ein Konto.",
       inputSchema: {
         customer_id: z.string().describe("Google Ads Customer ID"),
-        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","THIS_MONTH","LAST_MONTH","LAST_90_DAYS"]).default("LAST_30_DAYS"),
+        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS","LAST_365_DAYS","THIS_MONTH","LAST_MONTH"]).default("LAST_30_DAYS"),
       },
     }, async ({ customer_id, date_range }) => {
       try {
@@ -65,7 +80,7 @@ const handler = createMcpHandler(
           SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type,
             metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions,
             metrics.conversions_value, metrics.ctr, metrics.average_cpc, metrics.cost_per_conversion
-          FROM campaign WHERE segments.date DURING ${date_range} AND campaign.status != 'REMOVED'
+          FROM campaign WHERE ${convertDateRange(date_range)} AND campaign.status != 'REMOVED'
           ORDER BY metrics.cost_micros DESC
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results.map((r: any) => ({
@@ -219,14 +234,14 @@ const handler = createMcpHandler(
       inputSchema: {
         customer_id: z.string(),
         campaign_id: z.string().optional().describe("Optional: nur Ad Groups dieser Kampagne"),
-        date_range: z.enum(["LAST_7_DAYS","LAST_30_DAYS","LAST_90_DAYS"]).default("LAST_30_DAYS"),
+        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS","LAST_365_DAYS","THIS_MONTH","LAST_MONTH"]).default("LAST_30_DAYS"),
       },
     }, async ({ customer_id, campaign_id, date_range }) => {
       try {
         const customer = getCustomer(customer_id);
         let q = `SELECT ad_group.id, ad_group.name, ad_group.status, campaign.name,
           metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions
-          FROM ad_group WHERE segments.date DURING ${date_range} AND ad_group.status != 'REMOVED'`;
+          FROM ad_group WHERE ${convertDateRange(date_range)} AND ad_group.status != 'REMOVED'`;
         if (campaign_id) q += ` AND campaign.id = ${campaign_id}`;
         q += ` ORDER BY metrics.cost_micros DESC`;
         const results = await customer.query(q);
@@ -302,7 +317,7 @@ const handler = createMcpHandler(
       description: "Zeigt die Performance einzelner Anzeigen.",
       inputSchema: {
         customer_id: z.string(),
-        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS"]).default("LAST_30_DAYS"),
+        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS","LAST_365_DAYS","THIS_MONTH","LAST_MONTH"]).default("LAST_30_DAYS"),
         campaign_name: z.string().optional(),
       },
     }, async ({ customer_id, date_range, campaign_name }) => {
@@ -313,7 +328,7 @@ const handler = createMcpHandler(
           ad_group_ad.status, ad_group_ad.ad.final_urls,
           campaign.name, ad_group.name,
           metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.ctr, metrics.average_cpc
-          FROM ad_group_ad WHERE segments.date DURING ${date_range} AND ad_group_ad.status != 'REMOVED'`;
+          FROM ad_group_ad WHERE ${convertDateRange(date_range)} AND ad_group_ad.status != 'REMOVED'`;
         if (campaign_name) q += ` AND campaign.name LIKE '%${campaign_name}%'`;
         q += ` ORDER BY metrics.cost_micros DESC LIMIT 50`;
         const results = await customer.query(q);
@@ -335,6 +350,13 @@ const handler = createMcpHandler(
       },
     }, async ({ customer_id, ad_group_id, headlines, descriptions, final_urls, path1, path2, status }) => {
       try {
+        // Validate text lengths
+        const longHeadlines = headlines.filter(h => h.length > 30);
+        if (longHeadlines.length > 0) return { content: [{ type: "text" as const, text: `Fehler: Headlines dürfen max 30 Zeichen haben. Zu lang: ${longHeadlines.map(h => `"${h}" (${h.length})`).join(', ')}` }] };
+        const longDescs = descriptions.filter(d => d.length > 90);
+        if (longDescs.length > 0) return { content: [{ type: "text" as const, text: `Fehler: Descriptions dürfen max 90 Zeichen haben. Zu lang: ${longDescs.map(d => `"${d}" (${d.length})`).join(', ')}` }] };
+        if (path1 && path1.length > 15) return { content: [{ type: "text" as const, text: `Fehler: path1 darf max 15 Zeichen haben (${path1.length})` }] };
+        if (path2 && path2.length > 15) return { content: [{ type: "text" as const, text: `Fehler: path2 darf max 15 Zeichen haben (${path2.length})` }] };
         const customer = getCustomer(customer_id);
         const ad: any = {
           final_urls,
@@ -378,7 +400,7 @@ const handler = createMcpHandler(
       description: "Zeigt Keyword-Performance eines Kontos.",
       inputSchema: {
         customer_id: z.string(),
-        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS"]).default("LAST_30_DAYS"),
+        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS","LAST_365_DAYS","THIS_MONTH","LAST_MONTH"]).default("LAST_30_DAYS"),
         limit: z.number().int().min(1).max(100).default(50),
       },
     }, async ({ customer_id, date_range, limit }) => {
@@ -389,7 +411,7 @@ const handler = createMcpHandler(
             ad_group_criterion.status, campaign.name, ad_group.name,
             metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions,
             metrics.ctr, metrics.average_cpc, metrics.search_impression_share
-          FROM keyword_view WHERE segments.date DURING ${date_range}
+          FROM keyword_view WHERE ${convertDateRange(date_range)}
           ORDER BY metrics.cost_micros DESC LIMIT ${limit}
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results.map((r: any) => ({
@@ -476,7 +498,7 @@ const handler = createMcpHandler(
       description: "Zeigt Suchanfragen und deren Performance.",
       inputSchema: {
         customer_id: z.string(),
-        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS"]).default("LAST_30_DAYS"),
+        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS","LAST_365_DAYS","THIS_MONTH","LAST_MONTH"]).default("LAST_30_DAYS"),
         campaign_id: z.string().optional(), limit: z.number().default(50),
       },
     }, async ({ customer_id, date_range, campaign_id, limit }) => {
@@ -485,7 +507,7 @@ const handler = createMcpHandler(
         let q = `SELECT search_term_view.search_term, search_term_view.status,
           campaign.name, ad_group.name, metrics.impressions, metrics.clicks,
           metrics.cost_micros, metrics.conversions, metrics.ctr
-          FROM search_term_view WHERE segments.date DURING ${date_range}`;
+          FROM search_term_view WHERE ${convertDateRange(date_range)}`;
         if (campaign_id) q += ` AND campaign.id = ${campaign_id}`;
         q += ` ORDER BY metrics.impressions DESC LIMIT ${limit}`;
         const results = await customer.query(q);
@@ -529,7 +551,7 @@ const handler = createMcpHandler(
       description: "Zeigt Conversion-Daten pro Kampagne.",
       inputSchema: {
         customer_id: z.string(),
-        date_range: z.enum(["LAST_7_DAYS","LAST_30_DAYS","LAST_90_DAYS"]).default("LAST_30_DAYS"),
+        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS","LAST_365_DAYS","THIS_MONTH","LAST_MONTH"]).default("LAST_30_DAYS"),
       },
     }, async ({ customer_id, date_range }) => {
       try {
@@ -538,7 +560,7 @@ const handler = createMcpHandler(
           SELECT campaign.name, metrics.conversions, metrics.conversions_value,
             metrics.cost_per_conversion, metrics.conversions_from_interactions_rate,
             metrics.value_per_conversion, metrics.cost_micros
-          FROM campaign WHERE segments.date DURING ${date_range} AND campaign.status != 'REMOVED'
+          FROM campaign WHERE ${convertDateRange(date_range)} AND campaign.status != 'REMOVED'
             AND metrics.conversions > 0
           ORDER BY metrics.conversions DESC
         `);
@@ -558,7 +580,7 @@ const handler = createMcpHandler(
       description: "Performance nach Standort.",
       inputSchema: {
         customer_id: z.string(),
-        date_range: z.enum(["LAST_7_DAYS","LAST_30_DAYS","LAST_90_DAYS"]).default("LAST_30_DAYS"),
+        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS","LAST_365_DAYS","THIS_MONTH","LAST_MONTH"]).default("LAST_30_DAYS"),
         limit: z.number().default(20),
       },
     }, async ({ customer_id, date_range, limit }) => {
@@ -567,7 +589,7 @@ const handler = createMcpHandler(
         const results = await customer.query(`
           SELECT geographic_view.country_criterion_id, geographic_view.location_type,
             metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions, metrics.ctr
-          FROM geographic_view WHERE segments.date DURING ${date_range}
+          FROM geographic_view WHERE ${convertDateRange(date_range)}
           ORDER BY metrics.impressions DESC LIMIT ${limit}
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
@@ -579,7 +601,7 @@ const handler = createMcpHandler(
       description: "Performance nach Gerät (Desktop, Mobile, Tablet).",
       inputSchema: {
         customer_id: z.string(),
-        date_range: z.enum(["LAST_7_DAYS","LAST_30_DAYS","LAST_90_DAYS"]).default("LAST_30_DAYS"),
+        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS","LAST_365_DAYS","THIS_MONTH","LAST_MONTH"]).default("LAST_30_DAYS"),
       },
     }, async ({ customer_id, date_range }) => {
       try {
@@ -587,7 +609,7 @@ const handler = createMcpHandler(
         const results = await customer.query(`
           SELECT segments.device, metrics.impressions, metrics.clicks, metrics.cost_micros,
             metrics.conversions, metrics.ctr, metrics.average_cpc
-          FROM campaign WHERE segments.date DURING ${date_range} AND campaign.status != 'REMOVED'
+          FROM campaign WHERE ${convertDateRange(date_range)} AND campaign.status != 'REMOVED'
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
       } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
@@ -598,7 +620,7 @@ const handler = createMcpHandler(
       description: "Performance nach Tageszeit.",
       inputSchema: {
         customer_id: z.string(),
-        date_range: z.enum(["LAST_7_DAYS","LAST_30_DAYS","LAST_90_DAYS"]).default("LAST_30_DAYS"),
+        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS","LAST_365_DAYS","THIS_MONTH","LAST_MONTH"]).default("LAST_30_DAYS"),
       },
     }, async ({ customer_id, date_range }) => {
       try {
@@ -606,7 +628,7 @@ const handler = createMcpHandler(
         const results = await customer.query(`
           SELECT segments.hour, metrics.impressions, metrics.clicks, metrics.cost_micros,
             metrics.conversions, metrics.ctr
-          FROM campaign WHERE segments.date DURING ${date_range} AND campaign.status != 'REMOVED'
+          FROM campaign WHERE ${convertDateRange(date_range)} AND campaign.status != 'REMOVED'
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
       } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
@@ -617,7 +639,7 @@ const handler = createMcpHandler(
       description: "Impression Share Analyse pro Kampagne.",
       inputSchema: {
         customer_id: z.string(),
-        date_range: z.enum(["LAST_7_DAYS","LAST_30_DAYS","LAST_90_DAYS"]).default("LAST_30_DAYS"),
+        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS","LAST_365_DAYS","THIS_MONTH","LAST_MONTH"]).default("LAST_30_DAYS"),
       },
     }, async ({ customer_id, date_range }) => {
       try {
@@ -625,9 +647,9 @@ const handler = createMcpHandler(
         const results = await customer.query(`
           SELECT campaign.name, metrics.search_impression_share,
             metrics.search_budget_lost_impression_share, metrics.search_rank_lost_impression_share,
-            metrics.search_top_impression_percentage, metrics.search_absolute_top_impression_percentage,
+            metrics.search_top_impression_share, metrics.search_absolute_top_impression_share,
             metrics.impressions, metrics.clicks, metrics.cost_micros
-          FROM campaign WHERE segments.date DURING ${date_range}
+          FROM campaign WHERE ${convertDateRange(date_range)}
             AND campaign.status = 'ENABLED' AND campaign.advertising_channel_type = 'SEARCH'
           ORDER BY metrics.cost_micros DESC
         `);
@@ -636,8 +658,8 @@ const handler = createMcpHandler(
           impShare: r.metrics.search_impression_share ? (r.metrics.search_impression_share * 100).toFixed(1) + "%" : "N/A",
           budgetLost: r.metrics.search_budget_lost_impression_share ? (r.metrics.search_budget_lost_impression_share * 100).toFixed(1) + "%" : "N/A",
           rankLost: r.metrics.search_rank_lost_impression_share ? (r.metrics.search_rank_lost_impression_share * 100).toFixed(1) + "%" : "N/A",
-          topImpPct: r.metrics.search_top_impression_percentage ? (r.metrics.search_top_impression_percentage * 100).toFixed(1) + "%" : "N/A",
-          absTopPct: r.metrics.search_absolute_top_impression_percentage ? (r.metrics.search_absolute_top_impression_percentage * 100).toFixed(1) + "%" : "N/A",
+          topImpPct: r.metrics.search_top_impression_share ? (r.metrics.search_top_impression_share * 100).toFixed(1) + "%" : "N/A",
+          absTopPct: r.metrics.search_absolute_top_impression_share ? (r.metrics.search_absolute_top_impression_share * 100).toFixed(1) + "%" : "N/A",
           impressions: r.metrics.impressions, cost: (r.metrics.cost_micros / 1e6).toFixed(2) + " €",
         })), null, 2) }] };
       } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
@@ -648,7 +670,7 @@ const handler = createMcpHandler(
       description: "Landing Page Performance.",
       inputSchema: {
         customer_id: z.string(),
-        date_range: z.enum(["LAST_7_DAYS","LAST_30_DAYS","LAST_90_DAYS"]).default("LAST_30_DAYS"),
+        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS","LAST_365_DAYS","THIS_MONTH","LAST_MONTH"]).default("LAST_30_DAYS"),
         limit: z.number().default(20),
       },
     }, async ({ customer_id, date_range, limit }) => {
@@ -658,7 +680,7 @@ const handler = createMcpHandler(
           SELECT landing_page_view.unexpanded_final_url,
             metrics.impressions, metrics.clicks, metrics.cost_micros,
             metrics.conversions, metrics.ctr, metrics.cost_per_conversion
-          FROM landing_page_view WHERE segments.date DURING ${date_range}
+          FROM landing_page_view WHERE ${convertDateRange(date_range)}
           ORDER BY metrics.clicks DESC LIMIT ${limit}
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results.map((r: any) => ({
@@ -676,7 +698,7 @@ const handler = createMcpHandler(
       description: "Budget-Auslastung pro Kampagne.",
       inputSchema: {
         customer_id: z.string(),
-        date_range: z.enum(["LAST_7_DAYS","LAST_30_DAYS","LAST_90_DAYS"]).default("LAST_30_DAYS"),
+        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS","LAST_365_DAYS","THIS_MONTH","LAST_MONTH"]).default("LAST_30_DAYS"),
       },
     }, async ({ customer_id, date_range }) => {
       try {
@@ -685,7 +707,7 @@ const handler = createMcpHandler(
           SELECT campaign.name, campaign.status, campaign_budget.amount_micros,
             campaign_budget.total_amount_micros, metrics.cost_micros, metrics.impressions, metrics.clicks,
             metrics.search_budget_lost_impression_share
-          FROM campaign WHERE segments.date DURING ${date_range} AND campaign.status != 'REMOVED'
+          FROM campaign WHERE ${convertDateRange(date_range)} AND campaign.status != 'REMOVED'
           ORDER BY metrics.cost_micros DESC
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results.map((r: any) => ({
@@ -703,7 +725,7 @@ const handler = createMcpHandler(
       description: "Änderungsverlauf des Kontos.",
       inputSchema: {
         customer_id: z.string(),
-        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS"]).default("LAST_7_DAYS"),
+        date_range: z.enum(["LAST_7_DAYS","LAST_14_DAYS","LAST_30_DAYS","LAST_90_DAYS","LAST_365_DAYS","THIS_MONTH","LAST_MONTH"]).default("LAST_7_DAYS"),
         limit: z.number().default(30),
       },
     }, async ({ customer_id, date_range, limit }) => {
@@ -713,7 +735,7 @@ const handler = createMcpHandler(
           SELECT change_event.change_date_time, change_event.change_resource_type,
             change_event.change_resource_name, change_event.client_type,
             change_event.user_email, change_event.resource_change_operation
-          FROM change_event WHERE segments.date DURING ${date_range}
+          FROM change_event WHERE change_event.change_date_time >= '${(() => { const d = new Date(); const m = date_range.match(/LAST_(\d+)_DAYS/); d.setDate(d.getDate() - (m ? parseInt(m[1]) : 7)); return d.toISOString().split('T')[0]; })()} 00:00:00' AND change_event.change_date_time <= '${new Date().toISOString().split('T')[0]} 23:59:59'
           ORDER BY change_event.change_date_time DESC LIMIT ${limit}
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
@@ -792,6 +814,7 @@ const handler = createMcpHandler(
       },
     }, async ({ customer_id, callout_text, campaign_id }) => {
       try {
+        if (callout_text.length > 25) return { content: [{ type: "text" as const, text: `Fehler: Callout-Text darf max 25 Zeichen haben ("${callout_text}" hat ${callout_text.length})` }] };
         const customer = getCustomer(customer_id);
         const result = await customer.mutateResources([{
           entity: "asset", operation: "create",
@@ -1074,7 +1097,7 @@ const handler = createMcpHandler(
         const customer = getCustomer(customer_id);
         const results = await customer.query(query);
         return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `GAQL Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `GAQL Fehler: ${msg}` }] }; }
     });
 
   },
