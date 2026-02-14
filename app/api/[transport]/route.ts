@@ -159,7 +159,8 @@ const handler = createMcpHandler(
           campaign_budget: `customers/${customer_id}/campaignBudgets/${budgetIdClean}`,
         };
         // EU Political Advertising declaration (required for EU accounts since DSA)
-        campaign.contains_eu_political_advertising = false;
+        // Enum: 3 = DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING
+        campaign.contains_eu_political_advertising = 3;
         // Network settings required for Search/Display
         if (channel_type === "SEARCH") {
           campaign.network_settings = {
