@@ -940,6 +940,125 @@ const handler = createMcpHandler(
     });
 
     // ==========================================
+    // PMAX: ASSET GROUPS
+    // ==========================================
+
+    server.registerTool("create_asset_group", {
+      title: "Create Asset Group",
+      description: "Erstellt eine Asset Group für eine Performance Max Kampagne.",
+      inputSchema: {
+        customer_id: z.string(),
+        campaign_id: z.string(),
+        name: z.string().describe("Name der Asset Group"),
+        final_urls: z.array(z.string()).describe("Ziel-URLs"),
+        final_mobile_urls: z.array(z.string()).optional(),
+        path1: z.string().optional().describe("URL-Pfad 1 (max 15 Zeichen)"),
+        path2: z.string().optional().describe("URL-Pfad 2 (max 15 Zeichen)"),
+        status: z.enum(["ENABLED", "PAUSED"]).default("ENABLED"),
+      },
+    }, async ({ customer_id, campaign_id, name, final_urls, final_mobile_urls, path1, path2, status }) => {
+      try {
+        const customer = getCustomer(customer_id);
+        const assetGroup: any = {
+          campaign: `customers/${customer_id}/campaigns/${campaign_id}`,
+          name, final_urls, status: status === "ENABLED" ? 2 : 3,
+        };
+        if (final_mobile_urls) assetGroup.final_mobile_urls = final_mobile_urls;
+        if (path1) assetGroup.path1 = path1;
+        if (path2) assetGroup.path2 = path2;
+        const result = await customer.mutateResources([{ entity: "asset_group", operation: "create", resource: assetGroup }] as any);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (e: any) {
+        const details = e.errors?.map((err: any) => `${err.error_code ? JSON.stringify(err.error_code) : ''} ${err.message || ''}`.trim()).join('; ');
+        return { content: [{ type: "text" as const, text: `Fehler: ${details || e.message || JSON.stringify(e)}` }] };
+      }
+    });
+
+    server.registerTool("add_asset_to_asset_group", {
+      title: "Add Asset to Asset Group",
+      description: "Verknüpft ein Asset (Bild, Text, Video) mit einer Asset Group (für PMAX).",
+      inputSchema: {
+        customer_id: z.string(),
+        asset_group_id: z.string(),
+        asset_resource_name: z.string().describe("Asset Resource Name (z.B. customers/123/assets/456)"),
+        field_type: z.enum([
+          "HEADLINE", "DESCRIPTION", "LONG_HEADLINE", "BUSINESS_NAME",
+          "MARKETING_IMAGE", "SQUARE_MARKETING_IMAGE", "PORTRAIT_MARKETING_IMAGE",
+          "TALL_PORTRAIT_MARKETING_IMAGE", "LOGO", "LANDSCAPE_LOGO", "BUSINESS_LOGO",
+          "YOUTUBE_VIDEO", "CALL_TO_ACTION_SELECTION", "LONG_DESCRIPTION"
+        ]).describe("Asset-Rolle in der PMAX-Kampagne"),
+      },
+    }, async ({ customer_id, asset_group_id, asset_resource_name, field_type }) => {
+      try {
+        const fieldTypeMap: any = {
+          HEADLINE: 2, DESCRIPTION: 3, YOUTUBE_VIDEO: 4, MARKETING_IMAGE: 5,
+          LONG_HEADLINE: 17, BUSINESS_NAME: 18, SQUARE_MARKETING_IMAGE: 19,
+          PORTRAIT_MARKETING_IMAGE: 20, LOGO: 21, LANDSCAPE_LOGO: 22,
+          CALL_TO_ACTION_SELECTION: 25, BUSINESS_LOGO: 27,
+          TALL_PORTRAIT_MARKETING_IMAGE: 32, LONG_DESCRIPTION: 39,
+        };
+        const customer = getCustomer(customer_id);
+        const result = await customer.mutateResources([{
+          entity: "asset_group_asset", operation: "create",
+          resource: {
+            asset_group: `customers/${customer_id}/assetGroups/${asset_group_id}`,
+            asset: asset_resource_name,
+            field_type: fieldTypeMap[field_type],
+          },
+        }] as any);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (e: any) {
+        const details = e.errors?.map((err: any) => `${err.error_code ? JSON.stringify(err.error_code) : ''} ${err.message || ''}`.trim()).join('; ');
+        return { content: [{ type: "text" as const, text: `Fehler: ${details || e.message || JSON.stringify(e)}` }] };
+      }
+    });
+
+    server.registerTool("list_asset_groups", {
+      title: "List Asset Groups",
+      description: "Listet alle Asset Groups einer Kampagne auf.",
+      inputSchema: {
+        customer_id: z.string(),
+        campaign_id: z.string().optional(),
+      },
+    }, async ({ customer_id, campaign_id }) => {
+      try {
+        const customer = getCustomer(customer_id);
+        let q = `SELECT asset_group.id, asset_group.name, asset_group.status,
+          asset_group.campaign, asset_group.ad_strength, asset_group.path1, asset_group.path2
+          FROM asset_group WHERE asset_group.status != 'REMOVED'`;
+        if (campaign_id) q += ` AND asset_group.campaign = 'customers/${customer_id}/campaigns/${campaign_id}'`;
+        const results = await customer.query(q);
+        return { content: [{ type: "text" as const, text: JSON.stringify(results.map((r: any) => ({
+          id: r.asset_group.id, name: r.asset_group.name, status: r.asset_group.status,
+          adStrength: r.asset_group.ad_strength, path1: r.asset_group.path1, path2: r.asset_group.path2,
+        })), null, 2) }] };
+      } catch (e: any) {
+        return { content: [{ type: "text" as const, text: `Fehler: ${e.message || JSON.stringify(e)}` }] };
+      }
+    });
+
+    server.registerTool("create_text_asset", {
+      title: "Create Text Asset",
+      description: "Erstellt ein Text-Asset (Headline, Description, etc.) für PMAX.",
+      inputSchema: {
+        customer_id: z.string(),
+        text: z.string().describe("Der Text (Headlines max 30 Zeichen, Descriptions max 90 Zeichen)"),
+      },
+    }, async ({ customer_id, text }) => {
+      try {
+        const customer = getCustomer(customer_id);
+        const result = await customer.mutateResources([{
+          entity: "asset", operation: "create",
+          resource: { type: 5, text_asset: { text } }, // TEXT = 5
+        }] as any);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (e: any) {
+        const details = e.errors?.map((err: any) => `${err.error_code ? JSON.stringify(err.error_code) : ''} ${err.message || ''}`.trim()).join('; ');
+        return { content: [{ type: "text" as const, text: `Fehler: ${details || e.message || JSON.stringify(e)}` }] };
+      }
+    });
+
+    // ==========================================
     // GAQL (Catch-All)
     // ==========================================
 
