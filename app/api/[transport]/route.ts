@@ -735,7 +735,7 @@ const handler = createMcpHandler(
           SELECT change_event.change_date_time, change_event.change_resource_type,
             change_event.change_resource_name, change_event.client_type,
             change_event.user_email, change_event.resource_change_operation
-          FROM change_event WHERE change_event.change_date_time >= '${(() => { const d = new Date(); const m = date_range.match(/LAST_(\d+)_DAYS/); const days = m ? parseInt(m[1]) : 7; d.setDate(d.getDate() - (days > 1 ? days - 1 : days)); return d.toISOString().split('T')[0]; })()} 00:00:00' AND change_event.change_date_time <= '${new Date().toISOString().split('T')[0]} 23:59:59'
+          FROM change_event WHERE change_event.change_date_time >= '${(() => { const d = new Date(); const m = date_range.match(/LAST_(\d+)_DAYS/); const days = m ? parseInt(m[1]) : 7; d.setDate(d.getDate() - days + 2); return d.toISOString().split('T')[0]; })()} 00:00:00' AND change_event.change_date_time <= '${new Date().toISOString().split('T')[0]} 23:59:59'
           ORDER BY change_event.change_date_time DESC LIMIT ${limit}
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
