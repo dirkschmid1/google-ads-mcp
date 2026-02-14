@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
 import { verifyCode } from "../authorize/route";
-
-function makeToken(prefix: string): string {
-  return `${prefix}_${crypto.randomUUID()}`;
-}
+import { createSignedToken } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   let body: Record<string, string>;
@@ -25,17 +21,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "invalid_grant" }, { status: 400 });
     }
 
+    // Issue HMAC-signed tokens (24h access, 90d refresh)
+    const accessToken = createSignedToken(86400);
+    const refreshToken = createSignedToken(90 * 86400);
+
     return NextResponse.json({
-      access_token: makeToken("gads"),
+      access_token: accessToken,
       token_type: "Bearer",
       expires_in: 86400,
-      refresh_token: makeToken("gads_rt"),
+      refresh_token: refreshToken,
     });
   }
 
   if (grantType === "refresh_token") {
+    // Verify the refresh token before issuing new access token
+    const { validateBearerToken } = await import("@/lib/auth");
+    const rtValid = validateBearerToken(`Bearer ${body.refresh_token}`);
+    if (!rtValid) {
+      return NextResponse.json({ error: "invalid_grant", message: "Refresh token expired or invalid" }, { status: 400 });
+    }
+
     return NextResponse.json({
-      access_token: makeToken("gads"),
+      access_token: createSignedToken(86400),
       token_type: "Bearer",
       expires_in: 86400,
     });
