@@ -27,7 +27,7 @@ const handler = createMcpHandler(
           status: r.customer_client.status, isManager: r.customer_client.manager,
           currency: r.customer_client.currency_code, timezone: r.customer_client.time_zone,
         })), null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("get_account_info", {
@@ -44,7 +44,7 @@ const handler = createMcpHandler(
           FROM customer LIMIT 1
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     // ==========================================
@@ -76,7 +76,7 @@ const handler = createMcpHandler(
           avgCpc: (r.metrics.average_cpc / 1e6).toFixed(2) + " €",
           costPerConv: r.metrics.cost_per_conversion ? (r.metrics.cost_per_conversion / 1e6).toFixed(2) + " €" : "N/A",
         })), null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("set_campaign_status", {
@@ -95,7 +95,7 @@ const handler = createMcpHandler(
           update_mask: { paths: ["status"] },
         }] as any);
         return { content: [{ type: "text" as const, text: `Kampagne ${campaign_id} → ${status}` }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("create_campaign_budget", {
@@ -114,7 +114,7 @@ const handler = createMcpHandler(
           resource: { name: budget_name, amount_micros, delivery_method: delivery_method === "STANDARD" ? 2 : 3 },
         }] as any);
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("update_campaign_budget", {
@@ -133,7 +133,7 @@ const handler = createMcpHandler(
           update_mask: { paths: ["amount_micros"] },
         }] as any);
         return { content: [{ type: "text" as const, text: `Budget ${budget_id} → ${(new_amount_micros / 1e6).toFixed(2)} €/Tag` }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("create_campaign", {
@@ -150,12 +150,28 @@ const handler = createMcpHandler(
     }, async ({ customer_id, name, channel_type, budget_id, bidding_strategy, target_cpa_micros, status }) => {
       try {
         const channelMap: any = { SEARCH: 2, DISPLAY: 3, SHOPPING: 4, VIDEO: 6, PERFORMANCE_MAX: 13 };
+        // Handle budget_id: strip full resource name if provided
+        const budgetIdClean = budget_id.includes("/") ? budget_id.split("/").pop()! : budget_id;
         const campaign: any = {
           name,
           advertising_channel_type: channelMap[channel_type],
           status: status === "ENABLED" ? 2 : 3,
-          campaign_budget: `customers/${customer_id}/campaignBudgets/${budget_id}`,
+          campaign_budget: `customers/${customer_id}/campaignBudgets/${budgetIdClean}`,
         };
+        // Network settings required for Search/Display
+        if (channel_type === "SEARCH") {
+          campaign.network_settings = {
+            target_google_search: true,
+            target_search_network: true,
+            target_content_network: false,
+          };
+        } else if (channel_type === "DISPLAY") {
+          campaign.network_settings = {
+            target_google_search: false,
+            target_search_network: false,
+            target_content_network: true,
+          };
+        }
         if (bidding_strategy === "MANUAL_CPC") campaign.manual_cpc = {};
         else if (bidding_strategy === "MAXIMIZE_CLICKS") campaign.maximize_clicks = {};
         else if (bidding_strategy === "MAXIMIZE_CONVERSIONS") campaign.maximize_conversions = {};
@@ -164,7 +180,10 @@ const handler = createMcpHandler(
         const customer = getCustomer(customer_id);
         const result = await customer.mutateResources([{ entity: "campaign", operation: "create", resource: campaign }] as any);
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) {
+        const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === 'object' ? JSON.stringify(e) : String(e));
+        return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] };
+      }
     });
 
     // ==========================================
@@ -193,7 +212,7 @@ const handler = createMcpHandler(
           campaign: r.campaign.name, impressions: r.metrics.impressions, clicks: r.metrics.clicks,
           cost: (r.metrics.cost_micros / 1e6).toFixed(2) + " €", conversions: r.metrics.conversions,
         })), null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("create_ad_group", {
@@ -216,7 +235,7 @@ const handler = createMcpHandler(
           },
         }] as any);
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("set_ad_group_status", {
@@ -232,7 +251,7 @@ const handler = createMcpHandler(
           update_mask: { paths: ["status"] },
         }] as any);
         return { content: [{ type: "text" as const, text: `Ad Group ${ad_group_id} → ${status}` }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("update_ad_group_bid", {
@@ -248,7 +267,7 @@ const handler = createMcpHandler(
           update_mask: { paths: ["cpc_bid_micros"] },
         }] as any);
         return { content: [{ type: "text" as const, text: `Ad Group ${ad_group_id} Bid → ${(cpc_bid_micros / 1e6).toFixed(2)} €` }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     // ==========================================
@@ -276,7 +295,7 @@ const handler = createMcpHandler(
         q += ` ORDER BY metrics.cost_micros DESC LIMIT 50`;
         const results = await customer.query(q);
         return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("create_responsive_search_ad", {
@@ -308,7 +327,7 @@ const handler = createMcpHandler(
           resource: { ad_group: `customers/${customer_id}/adGroups/${ad_group_id}`, status: status === "ENABLED" ? 2 : 3, ad },
         }] as any);
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("set_ad_status", {
@@ -324,7 +343,7 @@ const handler = createMcpHandler(
           update_mask: { paths: ["status"] },
         }] as any);
         return { content: [{ type: "text" as const, text: `Ad ${ad_id} → ${status}` }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     // ==========================================
@@ -358,7 +377,7 @@ const handler = createMcpHandler(
           ctr: (r.metrics.ctr * 100).toFixed(2) + "%", avgCpc: (r.metrics.average_cpc / 1e6).toFixed(2) + " €",
           impShare: r.metrics.search_impression_share ? (r.metrics.search_impression_share * 100).toFixed(1) + "%" : "N/A",
         })), null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("add_keywords", {
@@ -385,7 +404,7 @@ const handler = createMcpHandler(
         }));
         const result = await customer.mutateResources(ops as any);
         return { content: [{ type: "text" as const, text: `${keywords.length} Keywords hinzugefügt.\n${JSON.stringify(result, null, 2)}` }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("remove_keyword", {
@@ -400,7 +419,7 @@ const handler = createMcpHandler(
           resource_name: `customers/${customer_id}/adGroupCriteria/${ad_group_id}~${criterion_id}`,
         }] as any);
         return { content: [{ type: "text" as const, text: `Keyword ${criterion_id} entfernt.` }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("add_negative_keywords", {
@@ -426,7 +445,7 @@ const handler = createMcpHandler(
         }));
         const result = await customer.mutateResources(ops as any);
         return { content: [{ type: "text" as const, text: `${keywords.length} Negative Keywords hinzugefügt.` }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("get_search_terms_report", {
@@ -454,7 +473,7 @@ const handler = createMcpHandler(
           cost: (r.metrics.cost_micros / 1e6).toFixed(2) + " €", conversions: r.metrics.conversions,
           ctr: (r.metrics.ctr * 100).toFixed(2) + "%",
         })), null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     // ==========================================
@@ -479,7 +498,7 @@ const handler = createMcpHandler(
           ORDER BY metrics.impressions DESC LIMIT ${limit}
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("get_conversion_report", {
@@ -508,7 +527,7 @@ const handler = createMcpHandler(
           valuePerConv: r.metrics.value_per_conversion?.toFixed(2) || "N/A",
           cost: (r.metrics.cost_micros / 1e6).toFixed(2) + " €",
         })), null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("get_geographic_report", {
@@ -529,7 +548,7 @@ const handler = createMcpHandler(
           ORDER BY metrics.impressions DESC LIMIT ${limit}
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("get_device_report", {
@@ -548,7 +567,7 @@ const handler = createMcpHandler(
           FROM campaign WHERE segments.date DURING ${date_range} AND campaign.status != 'REMOVED'
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("get_hour_of_day_report", {
@@ -567,7 +586,7 @@ const handler = createMcpHandler(
           FROM campaign WHERE segments.date DURING ${date_range} AND campaign.status != 'REMOVED'
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("get_search_impression_share", {
@@ -598,7 +617,7 @@ const handler = createMcpHandler(
           absTopPct: r.metrics.search_absolute_top_impression_percentage ? (r.metrics.search_absolute_top_impression_percentage * 100).toFixed(1) + "%" : "N/A",
           impressions: r.metrics.impressions, cost: (r.metrics.cost_micros / 1e6).toFixed(2) + " €",
         })), null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("get_landing_page_report", {
@@ -626,7 +645,7 @@ const handler = createMcpHandler(
           ctr: (r.metrics.ctr * 100).toFixed(2) + "%",
           costPerConv: r.metrics.cost_per_conversion ? (r.metrics.cost_per_conversion / 1e6).toFixed(2) + " €" : "N/A",
         })), null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("get_budget_report", {
@@ -653,7 +672,7 @@ const handler = createMcpHandler(
           impressions: r.metrics.impressions,
           budgetLostIS: r.metrics.search_budget_lost_impression_share ? (r.metrics.search_budget_lost_impression_share * 100).toFixed(1) + "%" : "N/A",
         })), null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("get_change_history", {
@@ -675,7 +694,7 @@ const handler = createMcpHandler(
           ORDER BY change_event.change_date_time DESC LIMIT ${limit}
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     // ==========================================
@@ -697,7 +716,7 @@ const handler = createMcpHandler(
           FROM asset WHERE asset.type IN ('SITELINK', 'CALLOUT', 'STRUCTURED_SNIPPET', 'CALL')
         `);
         return { content: [{ type: "text" as const, text: JSON.stringify(results, null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("create_sitelink_extension", {
@@ -715,7 +734,7 @@ const handler = createMcpHandler(
         if (description2) asset.sitelink_asset.description2 = description2;
         const result = await customer.mutateResources([{ entity: "asset", operation: "create", resource: asset }] as any);
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     server.registerTool("create_callout_extension", {
@@ -733,7 +752,7 @@ const handler = createMcpHandler(
           resource: { type: 7, callout_asset: { callout_text } },
         }] as any);
         return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-      } catch (e: any) { return { content: [{ type: "text" as const, text: `Fehler: ${e.message}` }] }; }
+      } catch (e: any) { const msg = e.message || e.errors?.[0]?.message || e.details?.[0]?.errors?.[0]?.message || (typeof e === "object" ? JSON.stringify(e) : String(e)); return { content: [{ type: "text" as const, text: `Fehler: ${msg}` }] }; }
     });
 
     // ==========================================
