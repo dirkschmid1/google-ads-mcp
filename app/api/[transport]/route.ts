@@ -172,10 +172,21 @@ const handler = createMcpHandler(
             target_content_network: true,
           };
         }
-        if (bidding_strategy === "MANUAL_CPC") campaign.manual_cpc = { enhanced_cpc_enabled: false };
-        else if (bidding_strategy === "MAXIMIZE_CLICKS") campaign.maximize_clicks = { target_spend_micros: 0 };
-        else if (bidding_strategy === "MAXIMIZE_CONVERSIONS") campaign.maximize_conversions = { target_cpa_micros: 0 };
-        else if (bidding_strategy === "TARGET_CPA") campaign.target_cpa = { target_cpa_micros: target_cpa_micros || 0 };
+        // Bidding strategy
+        if (bidding_strategy === "MANUAL_CPC") {
+          campaign.manual_cpc = {};
+          campaign.manual_cpc.enhanced_cpc_enabled = false;
+        } else if (bidding_strategy === "MAXIMIZE_CLICKS") {
+          // Must set at least one field so proto3 serializes the oneof
+          campaign.maximize_clicks = {};
+          campaign.maximize_clicks.cpc_bid_ceiling_micros = 10000000; // 10€ default ceiling
+        } else if (bidding_strategy === "MAXIMIZE_CONVERSIONS") {
+          campaign.maximize_conversions = {};
+          campaign.maximize_conversions.target_cpa_micros = 1;
+        } else if (bidding_strategy === "TARGET_CPA") {
+          campaign.target_cpa = {};
+          campaign.target_cpa.target_cpa_micros = target_cpa_micros || 1000000;
+        }
 
         const customer = getCustomer(customer_id);
         const result = await customer.mutateResources([{ entity: "campaign", operation: "create", resource: campaign }] as any);
