@@ -172,10 +172,10 @@ const handler = createMcpHandler(
             target_content_network: true,
           };
         }
-        if (bidding_strategy === "MANUAL_CPC") campaign.manual_cpc = {};
-        else if (bidding_strategy === "MAXIMIZE_CLICKS") campaign.maximize_clicks = {};
-        else if (bidding_strategy === "MAXIMIZE_CONVERSIONS") campaign.maximize_conversions = {};
-        else if (bidding_strategy === "TARGET_CPA") campaign.target_cpa = { target_cpa_micros };
+        if (bidding_strategy === "MANUAL_CPC") campaign.manual_cpc = { enhanced_cpc_enabled: false };
+        else if (bidding_strategy === "MAXIMIZE_CLICKS") campaign.maximize_clicks = { target_spend_micros: 0 };
+        else if (bidding_strategy === "MAXIMIZE_CONVERSIONS") campaign.maximize_conversions = { target_cpa_micros: 0 };
+        else if (bidding_strategy === "TARGET_CPA") campaign.target_cpa = { target_cpa_micros: target_cpa_micros || 0 };
 
         const customer = getCustomer(customer_id);
         const result = await customer.mutateResources([{ entity: "campaign", operation: "create", resource: campaign }] as any);
