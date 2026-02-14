@@ -143,11 +143,12 @@ const handler = createMcpHandler(
         customer_id: z.string(), name: z.string(),
         channel_type: z.enum(["SEARCH", "DISPLAY", "SHOPPING", "VIDEO", "PERFORMANCE_MAX"]),
         budget_id: z.string().describe("Budget Resource ID"),
-        bidding_strategy: z.enum(["MANUAL_CPC", "MAXIMIZE_CLICKS", "MAXIMIZE_CONVERSIONS", "TARGET_CPA"]).default("MAXIMIZE_CLICKS"),
+        bidding_strategy: z.enum(["MANUAL_CPC", "MAXIMIZE_CLICKS", "MAXIMIZE_CONVERSIONS", "MAXIMIZE_CONVERSION_VALUE", "TARGET_CPA", "TARGET_ROAS", "TARGET_IMPRESSION_SHARE"]).default("MAXIMIZE_CLICKS"),
         target_cpa_micros: z.number().optional().describe("Target CPA in Micros (nur bei TARGET_CPA)"),
+        target_roas: z.number().optional().describe("Target ROAS (z.B. 4.0 = 400%, nur bei TARGET_ROAS)"),
         status: z.enum(["ENABLED", "PAUSED"]).default("PAUSED"),
       },
-    }, async ({ customer_id, name, channel_type, budget_id, bidding_strategy, target_cpa_micros, status }) => {
+    }, async ({ customer_id, name, channel_type, budget_id, bidding_strategy, target_cpa_micros, target_roas, status }) => {
       try {
         const channelMap: any = { SEARCH: 2, DISPLAY: 3, SHOPPING: 4, VIDEO: 6, PERFORMANCE_MAX: 13 };
         // Handle budget_id: strip full resource name if provided
@@ -179,12 +180,18 @@ const handler = createMcpHandler(
         if (bidding_strategy === "MANUAL_CPC") {
           campaign.manual_cpc = { enhanced_cpc_enabled: false };
         } else if (bidding_strategy === "MAXIMIZE_CLICKS") {
-          // v23: "maximize_clicks" was replaced by "target_spend"
+          // v23: "maximize_clicks" = "target_spend" in proto
           campaign.target_spend = { cpc_bid_ceiling_micros: 10000000 };
         } else if (bidding_strategy === "MAXIMIZE_CONVERSIONS") {
-          campaign.maximize_conversions = { target_cpa_micros: 0 };
+          campaign.maximize_conversions = { target_cpa_micros: target_cpa_micros || 0 };
+        } else if (bidding_strategy === "MAXIMIZE_CONVERSION_VALUE") {
+          campaign.maximize_conversion_value = { target_roas: target_roas || 0 };
         } else if (bidding_strategy === "TARGET_CPA") {
           campaign.target_cpa = { target_cpa_micros: target_cpa_micros || 1000000 };
+        } else if (bidding_strategy === "TARGET_ROAS") {
+          campaign.target_roas = { target_roas: target_roas || 4.0 };
+        } else if (bidding_strategy === "TARGET_IMPRESSION_SHARE") {
+          campaign.target_impression_share = { location: 2, location_fraction_micros: 500000, cpc_bid_ceiling_micros: 5000000 };
         }
 
         const customer = getCustomer(customer_id);
