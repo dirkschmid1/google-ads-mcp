@@ -845,6 +845,101 @@ const handler = createMcpHandler(
     });
 
     // ==========================================
+    // IMAGE & VIDEO ASSETS (for PMAX etc.)
+    // ==========================================
+
+    server.registerTool("upload_image_asset", {
+      title: "Upload Image Asset",
+      description: "Lädt ein Bild hoch (für PMAX, Display etc.). Akzeptiert Base64-encoded Bilddaten oder eine URL.",
+      inputSchema: {
+        customer_id: z.string(),
+        name: z.string().describe("Asset-Name (z.B. 'Logo BEM' oder 'Hero Image')"),
+        image_data: z.string().optional().describe("Base64-encoded Bilddaten (ohne data: prefix)"),
+        image_url: z.string().optional().describe("Alternativ: URL zum Bild (wird heruntergeladen)"),
+      },
+    }, async ({ customer_id, name, image_data, image_url }) => {
+      try {
+        let data = image_data;
+        if (!data && image_url) {
+          const res = await fetch(image_url);
+          const buf = await res.arrayBuffer();
+          data = Buffer.from(buf).toString('base64');
+        }
+        if (!data) return { content: [{ type: "text" as const, text: "Fehler: image_data oder image_url erforderlich" }] };
+        const customer = getCustomer(customer_id);
+        const result = await customer.mutateResources([{
+          entity: "asset", operation: "create",
+          resource: { type: 4, name, image_asset: { data: Buffer.from(data, 'base64') } },
+        }] as any);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (e: any) {
+        const details = e.errors?.map((err: any) => `${err.error_code ? JSON.stringify(err.error_code) : ''} ${err.message || ''}`.trim()).join('; ');
+        return { content: [{ type: "text" as const, text: `Fehler: ${details || e.message || JSON.stringify(e)}` }] };
+      }
+    });
+
+    server.registerTool("link_asset_to_campaign", {
+      title: "Link Asset to Campaign",
+      description: "Verknüpft ein bestehendes Asset mit einer Kampagne (für PMAX Asset Groups, Sitelinks, etc.).",
+      inputSchema: {
+        customer_id: z.string(),
+        asset_resource_name: z.string().describe("Asset Resource Name (z.B. customers/123/assets/456)"),
+        campaign_id: z.string(),
+        field_type: z.enum([
+          "HEADLINE", "DESCRIPTION", "LONG_HEADLINE", "BUSINESS_NAME",
+          "MARKETING_IMAGE", "SQUARE_MARKETING_IMAGE", "PORTRAIT_MARKETING_IMAGE",
+          "LOGO", "LANDSCAPE_LOGO", "BUSINESS_LOGO",
+          "SITELINK", "CALLOUT", "STRUCTURED_SNIPPET",
+          "CALL_TO_ACTION", "YOUTUBE_VIDEO"
+        ]).describe("Wie das Asset in der Kampagne verwendet wird"),
+      },
+    }, async ({ customer_id, asset_resource_name, campaign_id, field_type }) => {
+      try {
+        const fieldTypeMap: any = {
+          HEADLINE: 2, DESCRIPTION: 3, MARKETING_IMAGE: 5, LONG_HEADLINE: 17,
+          BUSINESS_NAME: 18, SQUARE_MARKETING_IMAGE: 19, PORTRAIT_MARKETING_IMAGE: 20,
+          LOGO: 21, LANDSCAPE_LOGO: 22, CALL_TO_ACTION: 40, YOUTUBE_VIDEO: 4,
+          SITELINK: 13, CALLOUT: 11, STRUCTURED_SNIPPET: 12, BUSINESS_LOGO: 27,
+        };
+        const customer = getCustomer(customer_id);
+        const result = await customer.mutateResources([{
+          entity: "campaign_asset", operation: "create",
+          resource: {
+            asset: asset_resource_name,
+            campaign: `customers/${customer_id}/campaigns/${campaign_id}`,
+            field_type: fieldTypeMap[field_type] || 5,
+          },
+        }] as any);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (e: any) {
+        const details = e.errors?.map((err: any) => `${err.error_code ? JSON.stringify(err.error_code) : ''} ${err.message || ''}`.trim()).join('; ');
+        return { content: [{ type: "text" as const, text: `Fehler: ${details || e.message || JSON.stringify(e)}` }] };
+      }
+    });
+
+    server.registerTool("add_youtube_video_asset", {
+      title: "Add YouTube Video Asset",
+      description: "Erstellt ein YouTube-Video-Asset für PMAX/Video-Kampagnen.",
+      inputSchema: {
+        customer_id: z.string(),
+        youtube_video_id: z.string().describe("YouTube Video ID (z.B. 'dQw4w9WgXcQ')"),
+        name: z.string().optional().describe("Asset-Name"),
+      },
+    }, async ({ customer_id, youtube_video_id, name }) => {
+      try {
+        const customer = getCustomer(customer_id);
+        const result = await customer.mutateResources([{
+          entity: "asset", operation: "create",
+          resource: { type: 2, name: name || `YouTube ${youtube_video_id}`, youtube_video_asset: { youtube_video_id } },
+        }] as any);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (e: any) {
+        const details = e.errors?.map((err: any) => `${err.error_code ? JSON.stringify(err.error_code) : ''} ${err.message || ''}`.trim()).join('; ');
+        return { content: [{ type: "text" as const, text: `Fehler: ${details || e.message || JSON.stringify(e)}` }] };
+      }
+    });
+
+    // ==========================================
     // GAQL (Catch-All)
     // ==========================================
 
